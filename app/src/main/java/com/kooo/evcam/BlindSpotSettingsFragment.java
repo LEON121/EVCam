@@ -64,6 +64,10 @@ public class BlindSpotSettingsFragment extends Fragment {
     private SwitchMaterial mockFloatingSwitch;
     private SwitchMaterial floatingWindowAnimationSwitch;
     private RadioGroup statusBarStyleGroup;
+    private View statusBarColorPreview;
+    private Button pickStatusBarColorButton;
+    private SeekBar statusBarOpacitySeekBar;
+    private TextView tvStatusBarOpacityValue;
     private SwitchMaterial blindSpotCorrectionSwitch;
     private Button adjustBlindSpotCorrectionButton;
     private SwitchMaterial mainFloatingAspectRatioLockSwitch;
@@ -125,6 +129,10 @@ public class BlindSpotSettingsFragment extends Fragment {
         mockFloatingSwitch = view.findViewById(R.id.switch_mock_floating);
         floatingWindowAnimationSwitch = view.findViewById(R.id.switch_floating_window_animation);
         statusBarStyleGroup = view.findViewById(R.id.rg_status_bar_style);
+        statusBarColorPreview = view.findViewById(R.id.view_status_bar_color_preview);
+        pickStatusBarColorButton = view.findViewById(R.id.btn_pick_status_bar_color);
+        statusBarOpacitySeekBar = view.findViewById(R.id.seekbar_status_bar_opacity);
+        tvStatusBarOpacityValue = view.findViewById(R.id.tv_status_bar_opacity_value);
 
         blindSpotCorrectionSwitch = view.findViewById(R.id.switch_blind_spot_correction);
         adjustBlindSpotCorrectionButton = view.findViewById(R.id.btn_adjust_blind_spot_correction);
@@ -222,6 +230,12 @@ public class BlindSpotSettingsFragment extends Fragment {
             case BlindSpotStatusBarView.STYLE_ARROW_RIPPLE:  statusBarStyleGroup.check(R.id.rb_style_arrow_ripple); break;
             default:                                         statusBarStyleGroup.check(R.id.rb_style_sequential); break;
         }
+
+        updateColorPreview(appConfig.getBlindSpotStatusBarColor());
+
+        int opacity = appConfig.getBlindSpotStatusBarBgOpacity();
+        statusBarOpacitySeekBar.setProgress(opacity);
+        tvStatusBarOpacityValue.setText(opacity + "%");
 
         blindSpotCorrectionSwitch.setChecked(appConfig.isBlindSpotCorrectionEnabled());
 
@@ -425,6 +439,22 @@ public class BlindSpotSettingsFragment extends Fragment {
             else                                               style = BlindSpotStatusBarView.STYLE_SEQUENTIAL;
             appConfig.setBlindSpotStatusBarStyle(style);
             BlindSpotService.update(requireContext());
+        });
+
+        pickStatusBarColorButton.setOnClickListener(v -> showColorPickerDialog());
+
+        statusBarOpacitySeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                tvStatusBarOpacityValue.setText(progress + "%");
+            }
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {}
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                appConfig.setBlindSpotStatusBarBgOpacity(seekBar.getProgress());
+                BlindSpotService.update(requireContext());
+            }
         });
 
         mockFloatingSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
@@ -648,4 +678,38 @@ public class BlindSpotSettingsFragment extends Fragment {
     /**
      * 检查车门API连接状态
      */
+
+    private void updateColorPreview(int color) {
+        if (statusBarColorPreview == null) return;
+        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+        gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        gd.setColor(color);
+        gd.setStroke((int) (1.5f * getResources().getDisplayMetrics().density), 0x40FFFFFF);
+        statusBarColorPreview.setBackground(gd);
+    }
+
+    private void showColorPickerDialog() {
+        ColorPickerView picker = new ColorPickerView(requireContext());
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        picker.setPadding(pad, pad, pad, pad);
+        picker.setColor(appConfig.getBlindSpotStatusBarColor());
+
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext(), R.style.Theme_Cam_MaterialAlertDialog)
+                .setTitle("选择动效颜色")
+                .setView(picker)
+                .setPositiveButton("确定", (dialog, which) -> {
+                    int color = picker.getColor();
+                    appConfig.setBlindSpotStatusBarColor(color);
+                    updateColorPreview(color);
+                    BlindSpotService.update(requireContext());
+                })
+                .setNegativeButton("取消", null)
+                .setNeutralButton("恢复默认", (dialog, which) -> {
+                    int defaultColor = 0xFFFFBF40;
+                    appConfig.setBlindSpotStatusBarColor(defaultColor);
+                    updateColorPreview(defaultColor);
+                    BlindSpotService.update(requireContext());
+                })
+                .show();
+    }
 }

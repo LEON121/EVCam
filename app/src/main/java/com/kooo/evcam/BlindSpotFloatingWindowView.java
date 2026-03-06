@@ -579,6 +579,9 @@ public class BlindSpotFloatingWindowView extends FrameLayout {
         } else {
             statusBar.setVisibility(View.VISIBLE);
             statusBar.setAnimationStyle(style);
+            statusBar.setEffectColor(appConfig.getBlindSpotStatusBarColor());
+            int alpha = (int) (appConfig.getBlindSpotStatusBarBgOpacity() / 100f * 255);
+            statusBar.setBackgroundColor(android.graphics.Color.argb(alpha, 0x1A, 0x1A, 0x1A));
         }
     }
 

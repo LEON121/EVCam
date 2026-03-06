@@ -12,8 +12,7 @@ public class AutoFitTextureView extends TextureView {
 
     private int ratioWidth = 0;
     private int ratioHeight = 0;
-    private boolean fillContainer = false;
-    private boolean useExactLayoutParams = false;
+    private boolean fillContainer = false;  // 是否填满容器（而不是适应容器）
 
     public AutoFitTextureView(Context context) {
         this(context, null);
@@ -52,14 +51,6 @@ public class AutoFitTextureView extends TextureView {
         requestLayout();
     }
 
-    /**
-     * 轮胎模式下使用精确 LayoutParams 尺寸，跳过宽高比自动调整。
-     * 避免 onMeasure 覆盖我们设置的尺寸导致缩放计算错误。
-     */
-    public void setUseExactLayoutParams(boolean exact) {
-        this.useExactLayoutParams = exact;
-        requestLayout();
-    }
 
     /**
      * 根据旋转角度设置宽高比
@@ -106,15 +97,6 @@ public class AutoFitTextureView extends TextureView {
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-
-        if (useExactLayoutParams) {
-            android.view.ViewGroup.LayoutParams lp = getLayoutParams();
-            if (lp != null && lp.width > 0 && lp.height > 0) {
-                setMeasuredDimension(lp.width, lp.height);
-                return;
-            }
-        }
-
         int width = MeasureSpec.getSize(widthMeasureSpec);
         int height = MeasureSpec.getSize(heightMeasureSpec);
 

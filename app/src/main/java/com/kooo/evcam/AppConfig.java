@@ -122,6 +122,8 @@ public class AppConfig {
     // 补盲悬浮窗动效
     private static final String KEY_FLOATING_WINDOW_ANIMATION_ENABLED = "floating_window_animation_enabled"; // 悬浮窗开启/关闭动效
     private static final String KEY_BLIND_SPOT_STATUS_BAR_STYLE = "blind_spot_status_bar_style";             // 状态栏动效样式 (0=关, 1-5=五种动效)
+    private static final String KEY_BLIND_SPOT_STATUS_BAR_COLOR = "blind_spot_status_bar_color";             // 状态栏动效颜色 (ARGB int)
+    private static final String KEY_BLIND_SPOT_STATUS_BAR_BG_OPACITY = "blind_spot_status_bar_bg_opacity";   // 状态栏底色不透明度 0-100
 
     // 主屏悬浮窗比例锁定
     private static final String KEY_MAIN_FLOATING_ASPECT_RATIO_LOCKED = "main_floating_aspect_ratio_locked";
@@ -2171,6 +2173,31 @@ public class AppConfig {
      */
     public int getBlindSpotStatusBarStyle() {
         return prefs.getInt(KEY_BLIND_SPOT_STATUS_BAR_STYLE, 1);
+    }
+
+    public void setBlindSpotStatusBarColor(int color) {
+        prefs.edit().putInt(KEY_BLIND_SPOT_STATUS_BAR_COLOR, color).apply();
+    }
+
+    /**
+     * @return ARGB color for status bar effect. Default: amber 0xFFFFBF40
+     */
+    public int getBlindSpotStatusBarColor() {
+        return prefs.getInt(KEY_BLIND_SPOT_STATUS_BAR_COLOR, 0xFFFFBF40);
+    }
+
+    /**
+     * @param opacity 0-100, 0=完全透明, 100=完全不透明
+     */
+    public void setBlindSpotStatusBarBgOpacity(int opacity) {
+        prefs.edit().putInt(KEY_BLIND_SPOT_STATUS_BAR_BG_OPACITY, opacity).apply();
+    }
+
+    /**
+     * @return 0-100, default 31 (约 31% 不透明)
+     */
+    public int getBlindSpotStatusBarBgOpacity() {
+        return prefs.getInt(KEY_BLIND_SPOT_STATUS_BAR_BG_OPACITY, 31);
     }
 
     // ==================== 时间角标配置相关方法 ====================

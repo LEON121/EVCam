@@ -30,7 +30,7 @@ public class BlindSpotStatusBarView extends View {
     public static final int STYLE_GRADIENT_FILL = 4;
     public static final int STYLE_ARROW_RIPPLE = 5;
 
-    private static final int AMBER_R = 255, AMBER_G = 191, AMBER_B = 64;
+    private int colorR = 255, colorG = 191, colorB = 64;
 
     private int animationStyle = STYLE_SEQUENTIAL;
     private String direction = "";
@@ -99,6 +99,13 @@ public class BlindSpotStatusBarView extends View {
 
     public int getAnimationStyle() {
         return animationStyle;
+    }
+
+    public void setEffectColor(int color) {
+        colorR = Color.red(color);
+        colorG = Color.green(color);
+        colorB = Color.blue(color);
+        invalidate();
     }
 
     private void updateFlowDuration() {
@@ -199,7 +206,7 @@ public class BlindSpotStatusBarView extends View {
             a *= fadeMul * dirAlpha * pulseValue;
             if (a < 0.01f) continue;
 
-            fillPaint.setColor(Color.argb((int) (230 * a), AMBER_R, AMBER_G, AMBER_B));
+            fillPaint.setColor(Color.argb((int) (230 * a), colorR, colorG, colorB));
             rectF.set(x1, pad, x2, h - pad);
             canvas.drawRoundRect(rectF, r, r, fillPaint);
         }
@@ -223,7 +230,7 @@ public class BlindSpotStatusBarView extends View {
 
             fillPaint.setShader(new LinearGradient(
                     headX, 0, tailX, 0,
-                    Color.argb((int) (220 * a), AMBER_R, AMBER_G, AMBER_B),
+                    Color.argb((int) (220 * a), colorR, colorG, colorB),
                     Color.TRANSPARENT,
                     Shader.TileMode.CLAMP));
             canvas.drawRect(Math.min(headX, tailX), 0, Math.max(headX, tailX), h, fillPaint);
@@ -249,7 +256,7 @@ public class BlindSpotStatusBarView extends View {
             fillPaint.setShader(new LinearGradient(
                     waveX - bw / 2, 0, waveX + bw / 2, 0,
                     new int[]{Color.TRANSPARENT,
-                            Color.argb((int) (210 * a), AMBER_R, AMBER_G, AMBER_B),
+                            Color.argb((int) (210 * a), colorR, colorG, colorB),
                             Color.TRANSPARENT},
                     new float[]{0f, 0.5f, 1f},
                     Shader.TileMode.CLAMP));
@@ -284,8 +291,8 @@ public class BlindSpotStatusBarView extends View {
         int alpha = (int) (180 * dirAlpha * pulseValue * fade);
         fillPaint.setShader(new LinearGradient(
                 startX, 0, edgeX, 0,
-                Color.argb((int) (alpha * 0.3f), AMBER_R, AMBER_G, AMBER_B),
-                Color.argb(alpha, AMBER_R, AMBER_G, AMBER_B),
+                Color.argb((int) (alpha * 0.3f), colorR, colorG, colorB),
+                Color.argb(alpha, colorR, colorG, colorB),
                 Shader.TileMode.CLAMP));
         canvas.drawRect(l, 0, r, h, fillPaint);
         fillPaint.setShader(null);
@@ -313,7 +320,7 @@ public class BlindSpotStatusBarView extends View {
             float cH = baseH * scale;
             float cW = baseW * scale;
 
-            chevronPaint.setColor(Color.argb((int) (240 * a), AMBER_R, AMBER_G, AMBER_B));
+            chevronPaint.setColor(Color.argb((int) (240 * a), colorR, colorG, colorB));
             chevronPaint.setStrokeWidth(2.5f * dp);
 
             chevronPath.reset();

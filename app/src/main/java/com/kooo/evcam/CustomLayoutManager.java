@@ -568,7 +568,7 @@ public class CustomLayoutManager {
         // 普通模式画框位置 — 前/后轮模式复用，确保画框不跳变
         int[] fp = getNormalFramePositions();
 
-        int frontLeftWidth = 1120;
+        int frontLeftWidth = 1200;
         int frontLeftHeight = 662;
         int frontLeftX = 10;
         int frontLeftY = 397;
@@ -579,7 +579,7 @@ public class CustomLayoutManager {
         int frontRightY = 502;
         int frontRightRotation = 90;
 
-        int rearLeftWidth = 1120;
+        int rearLeftWidth = 1200;
         int rearLeftHeight = 662;
         int rearLeftX = 10;
         int rearLeftY = -624;
@@ -714,18 +714,8 @@ public class CustomLayoutManager {
                 int rightRotation = sbRightRotation.getProgress();
 
                 // 画框不动，只调整画面纹理
-                if (textureLeft != null) {
-                    textureLeft.setLayoutParams(new android.widget.FrameLayout.LayoutParams(leftWidth, leftHeight));
-                    applyRotationWithScale(textureLeft, leftRotation);
-                    textureLeft.setX(leftX);
-                    textureLeft.setY(leftY);
-                }
-                if (textureRight != null) {
-                    textureRight.setLayoutParams(new android.widget.FrameLayout.LayoutParams(rightWidth, rightHeight));
-                    applyRotationWithScale(textureRight, rightRotation);
-                    textureRight.setX(rightX);
-                    textureRight.setY(rightY);
-                }
+                applyWheelTextureTransform(textureLeft, leftWidth, leftHeight, leftRotation, leftX, leftY);
+                applyWheelTextureTransform(textureRight, rightWidth, rightHeight, rightRotation, rightX, rightY);
             }
         };
 
@@ -927,7 +917,7 @@ public class CustomLayoutManager {
         // 前轮模式画面默认值（相对画框内偏移 + 旋转）
         int leftRotation  = appConfig.getFrontWheelLeftRotation(270);
         int rightRotation = appConfig.getFrontWheelRightRotation(90);
-        int leftWidth  = appConfig.getFrontWheelLeftWidth(1120);
+        int leftWidth  = appConfig.getFrontWheelLeftWidth(1200);
         int leftHeight = appConfig.getFrontWheelLeftHeight(662);
         int leftX      = appConfig.getFrontWheelLeftX(10);
         int leftY      = appConfig.getFrontWheelLeftY(397);
@@ -936,18 +926,8 @@ public class CustomLayoutManager {
         int rightX      = appConfig.getFrontWheelRightX(-76);
         int rightY      = appConfig.getFrontWheelRightY(502);
 
-        if (textureLeft != null) {
-            textureLeft.setLayoutParams(new android.widget.FrameLayout.LayoutParams(leftWidth, leftHeight));
-            applyRotationWithScale(textureLeft, leftRotation);
-            textureLeft.setX(leftX);
-            textureLeft.setY(leftY);
-        }
-        if (textureRight != null) {
-            textureRight.setLayoutParams(new android.widget.FrameLayout.LayoutParams(rightWidth, rightHeight));
-            applyRotationWithScale(textureRight, rightRotation);
-            textureRight.setX(rightX);
-            textureRight.setY(rightY);
-        }
+        applyWheelTextureTransform(textureLeft, leftWidth, leftHeight, leftRotation, leftX, leftY);
+        applyWheelTextureTransform(textureRight, rightWidth, rightHeight, rightRotation, rightX, rightY);
 
         AppLog.d(TAG, "前轮模式布局已应用 - 左: (" + leftX + "," + leftY + ") " + leftWidth + "x" + leftHeight
                 + " rot=" + leftRotation + ", 右: (" + rightX + "," + rightY + ") " + rightWidth + "x" + rightHeight
@@ -983,7 +963,7 @@ public class CustomLayoutManager {
         // 后轮模式画面默认值（相对画框内偏移 + 旋转）
         int leftRotation  = appConfig.getRearWheelLeftRotation(270);
         int rightRotation = appConfig.getRearWheelRightRotation(90);
-        int leftWidth  = appConfig.getRearWheelLeftWidth(1120);
+        int leftWidth  = appConfig.getRearWheelLeftWidth(1200);
         int leftHeight = appConfig.getRearWheelLeftHeight(662);
         int leftX      = appConfig.getRearWheelLeftX(10);
         int leftY      = appConfig.getRearWheelLeftY(-624);
@@ -992,22 +972,42 @@ public class CustomLayoutManager {
         int rightX      = appConfig.getRearWheelRightX(-164);
         int rightY      = appConfig.getRearWheelRightY(-702);
 
-        if (textureLeft != null) {
-            textureLeft.setLayoutParams(new android.widget.FrameLayout.LayoutParams(leftWidth, leftHeight));
-            applyRotationWithScale(textureLeft, leftRotation);
-            textureLeft.setX(leftX);
-            textureLeft.setY(leftY);
-        }
-        if (textureRight != null) {
-            textureRight.setLayoutParams(new android.widget.FrameLayout.LayoutParams(rightWidth, rightHeight));
-            applyRotationWithScale(textureRight, rightRotation);
-            textureRight.setX(rightX);
-            textureRight.setY(rightY);
-        }
+        applyWheelTextureTransform(textureLeft, leftWidth, leftHeight, leftRotation, leftX, leftY);
+        applyWheelTextureTransform(textureRight, rightWidth, rightHeight, rightRotation, rightX, rightY);
 
         AppLog.d(TAG, "后轮模式布局已应用 - 左: (" + leftX + "," + leftY + ") " + leftWidth + "x" + leftHeight
                 + " rot=" + leftRotation + ", 右: (" + rightX + "," + rightY + ") " + rightWidth + "x" + rightHeight
                 + " rot=" + rightRotation);
+    }
+
+    /**
+     * 轮胎模式：纯 View transform，不碰 LayoutParams，不触发 requestLayout。
+     */
+    private void applyWheelTextureTransform(TextureView tv, int w, int h, int rotation, int x, int y) {
+        if (tv == null) return;
+        tv.setRotation(rotation);
+        if (rotation == 90 || rotation == 270) {
+            float scale = Math.max((float) w / h, (float) h / w);
+            float curSx = tv.getScaleX();
+            tv.setScaleX(curSx < 0 ? -scale : scale);
+            tv.setScaleY(scale);
+        } else {
+            float curSx = tv.getScaleX();
+            tv.setScaleX(curSx < 0 ? -1f : 1f);
+            tv.setScaleY(1f);
+        }
+        tv.setX(x);
+        tv.setY(y);
+    }
+
+    /**
+     * 退出轮胎模式：重置 transform 属性到普通模式。
+     */
+    private void resetWheelTextureTransform(TextureView tv, int normalRotation) {
+        if (tv == null) return;
+        applyRotationWithScale(tv, normalRotation);
+        tv.setX(0);
+        tv.setY(0);
     }
 
     /**
@@ -1058,20 +1058,14 @@ public class CustomLayoutManager {
         setViewPosition(frameLeft, leftX, leftY, leftWidth, leftHeight);
         setViewPosition(frameRight, rightX, rightY, rightWidth, rightHeight);
 
-        // 应用参数到画面（位置、大小、旋转）
+        // 恢复画面到普通模式：重置所有 transform 属性
+        resetWheelTextureTransform(textureLeft, leftRotation);
         if (textureLeft != null) {
-            applyRotationWithScale(textureLeft, leftRotation);
-            textureLeft.setX(0);
-            textureLeft.setY(0);
-            android.widget.FrameLayout.LayoutParams leftParams = new android.widget.FrameLayout.LayoutParams(leftWidth, leftHeight);
-            textureLeft.setLayoutParams(leftParams);
+            textureLeft.setLayoutParams(new android.widget.FrameLayout.LayoutParams(leftWidth, leftHeight));
         }
+        resetWheelTextureTransform(textureRight, rightRotation);
         if (textureRight != null) {
-            applyRotationWithScale(textureRight, rightRotation);
-            textureRight.setX(0);
-            textureRight.setY(0);
-            android.widget.FrameLayout.LayoutParams rightParams = new android.widget.FrameLayout.LayoutParams(rightWidth, rightHeight);
-            textureRight.setLayoutParams(rightParams);
+            textureRight.setLayoutParams(new android.widget.FrameLayout.LayoutParams(rightWidth, rightHeight));
         }
 
         AppLog.d(TAG, "普通模式布局已应用");
@@ -1625,9 +1619,10 @@ public class CustomLayoutManager {
     private void restartApp() {
         if (context instanceof android.app.Activity) {
             android.app.Activity activity = (android.app.Activity) context;
-            
-            // 重新创建 Activity，不关闭应用
+
             Toast.makeText(context, "正在重载界面...", Toast.LENGTH_SHORT).show();
+            // 清掉 Holder 中的旧 CameraManager，避免新 Activity 复用处于不一致状态的实例
+            com.kooo.evcam.camera.CameraManagerHolder.getInstance().setCameraManager(null);
             activity.recreate();
         }
     }

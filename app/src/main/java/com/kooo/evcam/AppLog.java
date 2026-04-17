@@ -310,6 +310,28 @@ public final class AppLog {
         File logFile = new File(logDir, fileName);
         return writeLogToFile(logFile, snapshot) ? logFile : null;
     }
+
+    public static File saveCurrentLogsToFile(Context context) {
+        return saveLogsToFile(context);
+    }
+
+    public static File savePreviousSessionLogsToFile(Context context) {
+        if (context == null) {
+            return null;
+        }
+
+        List<String> snapshot = getPreviousSessionLogs(context);
+        if (snapshot.isEmpty()) {
+            return null;
+        }
+
+        String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+        String fileName = "evcam_previous_log_" + timestamp + ".txt";
+
+        File logDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "EVCam_Log");
+        File logFile = new File(logDir, fileName);
+        return writeLogToFile(logFile, snapshot) ? logFile : null;
+    }
     
     /**
      * 一键上传日志到 Gotify 服务器（上传当前运行日志）

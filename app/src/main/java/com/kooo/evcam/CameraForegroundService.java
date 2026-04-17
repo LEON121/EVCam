@@ -44,6 +44,7 @@ public class CameraForegroundService extends Service {
     private Runnable cameraRepairRunnable;
 
     private static volatile boolean isForegroundReady = false;
+    private static volatile boolean stopRequested = false;
     private static final java.util.List<Runnable> pendingReadyCallbacks = new java.util.ArrayList<>();
 
     /**
@@ -185,6 +186,7 @@ public class CameraForegroundService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         AppLog.d(TAG, "Service started");
+        stopRequested = false;
         
         // 每次启动时检查并注册 TIME_TICK
         registerTimeTickIfNeeded();
@@ -265,7 +267,15 @@ public class CameraForegroundService extends Service {
         isForegroundReady = false;
         stopCameraRepairLoop();
 
-        // 服务被杀时，发送延迟重启广播
+        // Explicit stop should not trigger self-restart.
+        if (stopRequested) {
+            AppLog.d(TAG, "\u5df2\u6536\u5230\u663e\u5f0f\u505c\u6b62\u8bf7\u6c42\uff0c\u8df3\u8fc7\u81ea\u52a8\u91cd\u542f");
+            stopRequested = false;
+            super.onDestroy();
+            return;
+        }
+
+        // System-driven destroy should still schedule a restart.
         scheduleServiceRestart();
 
         super.onDestroy();
@@ -308,8 +318,9 @@ public class CameraForegroundService extends Service {
     public void onTaskRemoved(Intent rootIntent) {
         AppLog.d(TAG, "onTaskRemoved - 应用被从最近任务清除，尝试重启服务...");
         
-        // 立即重启服务
-        scheduleServiceRestart();
+        if (!stopRequested) {
+            scheduleServiceRestart();
+        }
         
         super.onTaskRemoved(rootIntent);
     }
@@ -320,9 +331,18 @@ public class CameraForegroundService extends Service {
      */
     private void scheduleServiceRestart() {
         try {
+            if (stopRequested) {
+                AppLog.d(TAG, "\u5df2\u663e\u5f0f\u8bf7\u6c42\u505c\u6b62\uff0c\u4e0d\u518d\u8c03\u5ea6\u91cd\u542f");
+                return;
+            }
+
             // 方案1：使用 Handler 延迟重启
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 try {
+                    if (stopRequested) {
+                        AppLog.d(TAG, "\u663e\u5f0f\u505c\u6b62\u8bf7\u6c42\u4ecd\u7136\u751f\u6548\uff0c\u8df3\u8fc7\u5ef6\u8fdf\u91cd\u542f");
+                        return;
+                    }
                     AppLog.d(TAG, "执行延迟重启...");
                     start(getApplicationContext(), "EVCam", "服务自动重启");
                 } catch (Exception e) {
@@ -403,6 +423,7 @@ public class CameraForegroundService extends Service {
      * @param content 通知内容
      */
     public static void start(Context context, String title, String content) {
+        stopRequested = false;
         Intent intent = new Intent(context, CameraForegroundService.class);
         intent.putExtra("title", title);
         intent.putExtra("content", content);
@@ -458,6 +479,7 @@ public class CameraForegroundService extends Service {
      * @param context 上下文
      */
     public static void stop(Context context) {
+        stopRequested = true;
         isForegroundReady = false;
         Intent intent = new Intent(context, CameraForegroundService.class);
         context.stopService(intent);

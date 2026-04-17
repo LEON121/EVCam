@@ -143,6 +143,8 @@ public class CodecVideoRecorder {
     // 编码器健康检查
     private static final long ENCODER_HEALTH_CHECK_INTERVAL_MS = 3000;  // 健康检查间隔：3秒
     private static final int MAX_FRAMES_WITHOUT_OUTPUT = 30;  // 无输出的最大帧数阈值
+    private static final long EOS_DRAIN_TIMEOUT_MS = 1500;  // 停录时最多等待 1.5 秒排空编码器
+    private static final int EOS_TRY_AGAIN_LIMIT = 12;  // 连续无输出达到阈值后结束等待，避免卡死在线程里
     private long lastEncoderOutputTime = 0;  // 最后一次编码器输出时间
     private int framesWithoutEncoderOutput = 0;  // 无编码器输出的连续帧数
     private volatile boolean encoderHealthy = true;  // 编码器是否健康
@@ -631,7 +633,7 @@ public class CodecVideoRecorder {
 
         // 在编码线程上执行停止操作
         if (encoderHandler != null) {
-            final Object stopLock = new Object();
+            final java.util.concurrent.CountDownLatch stopLatch = new java.util.concurrent.CountDownLatch(1);
             encoderHandler.post(() -> {
                 try {
                     // 稍等一下让正在处理的帧完成
@@ -666,19 +668,18 @@ public class CodecVideoRecorder {
                 } catch (Exception e) {
                     AppLog.e(TAG, "Camera " + cameraId + " Error in stopRecording on encoder thread", e);
                 } finally {
-                    synchronized (stopLock) {
-                        stopLock.notifyAll();
-                    }
+                    stopLatch.countDown();
                 }
             });
 
             // 等待停止完成（最多3秒）
-            synchronized (stopLock) {
-                try {
-                    stopLock.wait(3000);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
+            try {
+                if (!stopLatch.await(3000, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                    AppLog.w(TAG, "Camera " + cameraId + " 等待编码线程停止超时，将继续清理资源");
                 }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                AppLog.w(TAG, "Camera " + cameraId + " 等待编码线程停止被中断");
             }
         }
 
@@ -767,8 +768,14 @@ public class CodecVideoRecorder {
             encoderThread.quitSafely();
             try {
                 encoderThread.join(1000);
+                if (encoderThread.isAlive()) {
+                    AppLog.w(TAG, "Camera " + cameraId + " encoder thread did not stop in time, interrupting");
+                    encoderThread.interrupt();
+                    encoderThread.join(500);
+                }
             } catch (InterruptedException e) {
-                // Ignore
+                Thread.currentThread().interrupt();
+                AppLog.w(TAG, "Camera " + cameraId + " encoder thread join interrupted");
             }
             encoderThread = null;
             encoderHandler = null;
@@ -782,6 +789,11 @@ public class CodecVideoRecorder {
             segmentThread.quitSafely();
             try {
                 segmentThread.join(1000);  // 1秒超时
+                if (segmentThread.isAlive()) {
+                    AppLog.w(TAG, "Camera " + cameraId + " segment thread did not stop in time, interrupting");
+                    segmentThread.interrupt();
+                    segmentThread.join(500);
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 AppLog.w(TAG, "Camera " + cameraId + " segment thread join interrupted");
@@ -1166,6 +1178,10 @@ public class CodecVideoRecorder {
 
         final int TIMEOUT_USEC = 10000;
         boolean gotOutput = false;
+        int tryAgainCount = 0;
+        long drainDeadlineMs = endOfStream
+                ? System.currentTimeMillis() + EOS_DRAIN_TIMEOUT_MS
+                : Long.MAX_VALUE;
 
         try {
             while (true) {
@@ -1181,7 +1197,14 @@ public class CodecVideoRecorder {
                     if (!endOfStream) {
                         break;
                     }
+                    tryAgainCount++;
+                    if (System.currentTimeMillis() >= drainDeadlineMs || tryAgainCount >= EOS_TRY_AGAIN_LIMIT) {
+                        AppLog.w(TAG, "Camera " + cameraId + " 等待编码器结束输出超时，强制结束本次停录排空");
+                        break;
+                    }
+                    continue;
                 } else if (outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    tryAgainCount = 0;
                     if (!muxerStarted) {
                         MediaFormat newFormat = encoder.getOutputFormat();
                         videoTrackIndex = muxer.addTrack(newFormat);
@@ -1192,6 +1215,7 @@ public class CodecVideoRecorder {
                     }
                     gotOutput = true;
                 } else if (outputBufferIndex >= 0) {
+                    tryAgainCount = 0;
                     ByteBuffer encodedData = encoder.getOutputBuffer(outputBufferIndex);
 
                     if (encodedData != null && bufferInfo.size != 0) {

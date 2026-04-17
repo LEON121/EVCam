@@ -251,20 +251,9 @@ public class CameraRecordingService extends Service {
                 CameraManagerHolder holder = CameraManagerHolder.getInstance();
                 MultiCameraManager cameraManager = holder.getOrInit(this);
                 if (cameraManager != null) {
-                    // 使用超时机制等待停止完成
-                    final Object stopLock = new Object();
-                    final boolean[] stopped = {false};
-                    
-                    // 在后台线程中停止录制
-                    cameraManager.stopRecording();
-                    
-                    // 等待停止完成（最多5秒）
-                    synchronized (stopLock) {
-                        try {
-                            stopLock.wait(5000);
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                        }
+                    boolean stoppedInTime = cameraManager.stopRecordingAndWait(5000);
+                    if (!stoppedInTime) {
+                        AppLog.w(TAG, "等待录制停止超时，继续执行服务收尾");
                     }
                 }
 

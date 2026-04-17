@@ -144,6 +144,10 @@ public class MainActivity extends AppCompatActivity {
     // 摄像头重连防抖相关
     private android.os.Handler reopenCameraHandler;  // 重新打开摄像头的 Handler
     private Runnable reopenCameraRunnable;  // 重新打开摄像头的 Runnable
+    private android.os.HandlerThread cameraLifecycleThread;  // 串行处理摄像头生命周期操作，避免主线程阻塞
+    private android.os.Handler cameraLifecycleHandler;
+    private Runnable pauseCamerasRunnable;
+    private Runnable resumeCamerasRunnable;
     
     // 息屏录制相关
     private android.content.BroadcastReceiver screenStateReceiver;  // 屏幕状态广播接收器
@@ -3727,10 +3731,10 @@ public class MainActivity extends AppCompatActivity {
             
             AppLog.d(TAG, "息屏已持续15秒，退到后台释放相机资源");
             
-            // 关闭摄像头释放资源
+            // 关闭摄像头是重操作，放到后台串行执行，避免息屏切后台时卡住主线程。
             if (cameraManager != null) {
-                cameraManager.closeAllCameras();
-                AppLog.d(TAG, "已关闭所有摄像头");
+                pauseCamerasByLifecycleAsync("\u606f\u5c4f\u540e\u9000\u5230\u540e\u53f0");
+                AppLog.d(TAG, "已提交后台暂停摄像头任务");
             }
             
             // 退到后台
@@ -4907,9 +4911,9 @@ public class MainActivity extends AppCompatActivity {
                 // 悬浮窗关闭时会自行释放摄像头（closeCamerasIfIdle）
                 AppLog.d(TAG, "Active camera windows exist, keeping cameras connected");
             } else {
-                // 未录制且无悬浮窗：主动断开摄像头，释放资源
-                AppLog.d(TAG, "Not recording, closing all cameras to release resources");
-                cameraManager.closeAllCameras();
+                // Move camera shutdown off the main thread to avoid blocking onPause.
+                AppLog.d(TAG, "\u5f53\u524d\u672a\u5f55\u5236\uff0c\u6539\u4e3a\u5728\u540e\u53f0\u4e32\u884c\u6682\u505c\u6444\u50cf\u5934");
+                pauseCamerasByLifecycleAsync("\u5e94\u7528\u9000\u5230\u540e\u53f0\u4e14\u5f53\u524d\u672a\u5f55\u5236");
             }
         }
     }
@@ -4972,9 +4976,9 @@ public class MainActivity extends AppCompatActivity {
             // 创建新的延迟任务
             reopenCameraRunnable = () -> {
                 // 只在没有正在录制时重新打开（录制时摄像头应该保持连接）
-                if (!isRecording) {
-                    AppLog.d(TAG, "Reopening cameras after returning from background");
-                    cameraManager.openAllCameras();
+                if (!isRecording && !isRemoteRecording) {
+                    AppLog.d(TAG, "\u5e94\u7528\u56de\u5230\u524d\u53f0\uff0c\u5f00\u59cb\u6062\u590d\u6444\u50cf\u5934");
+                    resumeCamerasByLifecycleAsync("\u5e94\u7528\u56de\u5230\u524d\u53f0");
                     
                     // 检查是否有待处理的远程命令
                     if (pendingRemoteCommand) {
@@ -5108,6 +5112,19 @@ public class MainActivity extends AppCompatActivity {
                 screenStateHandler.removeCallbacks(screenOffBackgroundRunnable);
             }
         }
+        if (reopenCameraHandler != null && reopenCameraRunnable != null) {
+            reopenCameraHandler.removeCallbacks(reopenCameraRunnable);
+        }
+        if (cameraLifecycleHandler != null) {
+            cameraLifecycleHandler.removeCallbacksAndMessages(null);
+            cameraLifecycleHandler = null;
+        }
+        if (cameraLifecycleThread != null) {
+            cameraLifecycleThread.quitSafely();
+            cameraLifecycleThread = null;
+        }
+        pauseCamerasRunnable = null;
+        resumeCamerasRunnable = null;
 
         // 停止前台服务（确保清理）
         CameraForegroundService.stop(this);
@@ -5171,6 +5188,113 @@ public class MainActivity extends AppCompatActivity {
             Thread.currentThread().interrupt();
             AppLog.w(TAG, "Camera manager release interrupted");
         }
+    }
+
+    private void ensureCameraLifecycleHandler() {
+        if (cameraLifecycleThread != null && cameraLifecycleThread.isAlive() && cameraLifecycleHandler != null) {
+            return;
+        }
+
+        cameraLifecycleThread = new android.os.HandlerThread("MainActivity-CameraLifecycle");
+        cameraLifecycleThread.start();
+        cameraLifecycleHandler = new android.os.Handler(cameraLifecycleThread.getLooper());
+    }
+
+    private void pauseCamerasByLifecycleAsync(String reason) {
+        if (cameraManager == null) {
+            return;
+        }
+
+        ensureCameraLifecycleHandler();
+        if (cameraLifecycleHandler == null) {
+            return;
+        }
+
+        if (resumeCamerasRunnable != null) {
+            cameraLifecycleHandler.removeCallbacks(resumeCamerasRunnable);
+        }
+        if (pauseCamerasRunnable != null) {
+            cameraLifecycleHandler.removeCallbacks(pauseCamerasRunnable);
+        }
+
+        final MultiCameraManager manager = cameraManager;
+        pauseCamerasRunnable = () -> {
+            try {
+                AppLog.d(TAG, "\u5728\u540e\u53f0\u7ebf\u7a0b\u6682\u505c\u6444\u50cf\u5934: " + reason);
+                manager.pauseAllCamerasByLifecycle();
+            } catch (Exception e) {
+                AppLog.e(TAG, "\u540e\u53f0\u6682\u505c\u6444\u50cf\u5934\u5931\u8d25", e);
+            }
+        };
+        cameraLifecycleHandler.post(pauseCamerasRunnable);
+    }
+
+    private void resumeCamerasByLifecycleAsync(String reason) {
+        if (cameraManager == null) {
+            return;
+        }
+
+        ensureCameraLifecycleHandler();
+        if (cameraLifecycleHandler == null) {
+            return;
+        }
+
+        if (pauseCamerasRunnable != null) {
+            cameraLifecycleHandler.removeCallbacks(pauseCamerasRunnable);
+        }
+        if (resumeCamerasRunnable != null) {
+            cameraLifecycleHandler.removeCallbacks(resumeCamerasRunnable);
+        }
+
+        final MultiCameraManager manager = cameraManager;
+        resumeCamerasRunnable = () -> {
+            try {
+                AppLog.d(TAG, "\u5728\u540e\u53f0\u7ebf\u7a0b\u6062\u590d\u6444\u50cf\u5934: " + reason);
+                manager.resumeAllCamerasByLifecycle();
+
+                // Run one extra health check after resume so partially disconnected cameras can recover.
+                int repairedCount = manager.checkAndRepairCameras();
+                if (repairedCount > 0) {
+                    AppLog.d(TAG, "\u751f\u547d\u5468\u671f\u6062\u590d\u65f6\u5df2\u4fee\u590d " + repairedCount + " \u8def\u6444\u50cf\u5934");
+                }
+
+                if (!manager.hasConnectedCameras()) {
+                    AppLog.d(TAG, "\u751f\u547d\u5468\u671f\u6062\u590d\u540e\u4ecd\u65e0\u5df2\u8fde\u63a5\u6444\u50cf\u5934\uff0c\u6267\u884c\u5168\u91cf\u91cd\u6253\u5f00");
+                    manager.openAllCameras();
+                }
+            } catch (Exception e) {
+                AppLog.e(TAG, "\u540e\u53f0\u6062\u590d\u6444\u50cf\u5934\u5931\u8d25", e);
+            }
+        };
+        cameraLifecycleHandler.post(resumeCamerasRunnable);
+    }
+
+    private void closeAllCamerasAsync(String reason) {
+        if (cameraManager == null) {
+            return;
+        }
+
+        ensureCameraLifecycleHandler();
+        if (cameraLifecycleHandler == null) {
+            return;
+        }
+
+        if (pauseCamerasRunnable != null) {
+            cameraLifecycleHandler.removeCallbacks(pauseCamerasRunnable);
+        }
+        if (resumeCamerasRunnable != null) {
+            cameraLifecycleHandler.removeCallbacks(resumeCamerasRunnable);
+        }
+
+        final MultiCameraManager manager = cameraManager;
+        cameraLifecycleHandler.post(() -> {
+            try {
+                AppLog.d(TAG, "\u5728\u540e\u53f0\u7ebf\u7a0b\u5173\u95ed\u6444\u50cf\u5934: " + reason);
+                manager.closeAllCameras();
+            } catch (Exception e) {
+                AppLog.e(TAG, "\u540e\u53f0\u5173\u95ed\u6444\u50cf\u5934\u5931\u8d25", e);
+            }
+        });
     }
 
     /**
@@ -5331,7 +5455,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void closeCameras() {
                 if (cameraManager != null) {
-                    cameraManager.closeAllCameras();
+                    closeAllCamerasAsync("\u5916\u90e8\u7a97\u53e3\u8bf7\u6c42\u5173\u95ed\u6444\u50cf\u5934");
                 }
             }
             

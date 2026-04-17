@@ -74,9 +74,8 @@
                 android:layout_marginBottom="16dp">
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
                     android:orientation="vertical">
 
                     <TextView
@@ -120,9 +119,8 @@
                 android:layout_marginBottom="24dp">
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
                     android:orientation="vertical">
 
                     <TextView
@@ -165,9 +163,8 @@
                 android:layout_marginBottom="24dp">
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
                     android:orientation="vertical">
 
                     <TextView
@@ -211,7 +208,6 @@
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
                     android:layout_marginEnd="16dp"
                     android:orientation="vertical">
 
@@ -1591,38 +1587,45 @@
                     android:layout_marginStart="16dp" />
             </LinearLayout>
 
-            <!-- 日志操作按钮（仅 Debug 开启时显示） -->
+            <!-- 日志操作按钮：常驻显示，方便现场快速导出日志 -->
             <LinearLayout
                 android:id="@+id/layout_log_buttons"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginBottom="24dp"
-                android:visibility="gone">
+                android:orientation="vertical"
+                android:layout_marginBottom="24dp">
 
                 <Button
-                    android:id="@+id/btn_save_logs"
-                    android:layout_width="0dp"
+                    android:id="@+id/btn_export_current_logs"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="保存日志"
+                    android:text="导出日志"
                     android:textSize="18sp"
                     android:minHeight="56dp"
                     android:backgroundTint="@color/button_background"
-                    android:textColor="@color/button_text"
-                    android:layout_marginEnd="8dp" />
+                    android:textColor="@color/button_text" />
+
+                <Button
+                    android:id="@+id/btn_export_previous_logs"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="导出上次日志"
+                    android:textSize="18sp"
+                    android:minHeight="56dp"
+                    android:layout_marginTop="12dp"
+                    android:layout_marginBottom="12dp"
+                    android:backgroundTint="@color/button_background"
+                    android:textColor="@color/button_text" />
 
                 <Button
                     android:id="@+id/btn_upload_logs"
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
                     android:text="一键上传"
                     android:textSize="18sp"
                     android:minHeight="56dp"
                     android:backgroundTint="#4CAF50"
-                    android:textColor="@color/button_text"
-                    android:layout_marginStart="8dp" />
+                    android:textColor="@color/button_text" />
 
             </LinearLayout>
 

@@ -43,9 +43,9 @@ public class SettingsFragment extends Fragment {
     private static final String TAG = "SettingsFragment";
 
     private SwitchMaterial debugSwitch;
-    private Button saveLogsButton;
+    private Button exportCurrentLogsButton;
+    private Button exportPreviousLogsButton;
     private Button uploadLogsButton;
-    private LinearLayout logButtonsLayout;
     private SwitchMaterial autoStartSwitch;
     private SwitchMaterial autoStartRecordingSwitch;
     private SwitchMaterial screenOffRecordingSwitch;
@@ -150,9 +150,17 @@ public class SettingsFragment extends Fragment {
 
         // 初始化控件
         debugSwitch = view.findViewById(R.id.switch_debug_to_info);
-        saveLogsButton = view.findViewById(R.id.btn_save_logs);
+        exportCurrentLogsButton = view.findViewById(R.id.btn_export_current_logs);
+        exportPreviousLogsButton = view.findViewById(R.id.btn_export_previous_logs);
         uploadLogsButton = view.findViewById(R.id.btn_upload_logs);
-        logButtonsLayout = view.findViewById(R.id.layout_log_buttons);
+        exportCurrentLogsButton.setText("\u5bfc\u51fa\u5f53\u524d\u65e5\u5fd7");
+        exportPreviousLogsButton.setText("\u5bfc\u51fa\u4e0a\u6b21\u65e5\u5fd7");
+        uploadLogsButton.setText("\u4e00\u952e\u4e0a\u4f20");
+        /*
+        exportCurrentLogsButton.setText("导出当前日志");
+        exportPreviousLogsButton.setText("导出上次日志");
+        uploadLogsButton.setText("一键上传");
+        */
         Button menuButton = view.findViewById(R.id.btn_menu);
         Button homeButton = view.findViewById(R.id.btn_home);
 
@@ -179,9 +187,7 @@ public class SettingsFragment extends Fragment {
             
             // 初始化Debug开关状态
             debugSwitch.setChecked(AppLog.isDebugToInfoEnabled(getContext()));
-            
-            // 根据 Debug 状态显示或隐藏保存日志按钮
-            updateSaveLogsButtonVisibility(debugSwitch.isChecked());
+            updatePreviousLogButtonState();
             
             // 初始化车型配置
             initCarModelConfig(view);
@@ -206,25 +212,36 @@ public class SettingsFragment extends Fragment {
         debugSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (getContext() != null) {
                 AppLog.setDebugToInfoEnabled(getContext(), isChecked);
-                updateSaveLogsButtonVisibility(isChecked);
-                String message = isChecked ? "Debug logs will show as info" : "Debug logs will show as debug";
+                String message = isChecked ? "调试日志将按信息级别显示" : "调试日志将按调试级别显示";
                 Toast.makeText(getContext(), message, Toast.LENGTH_SHORT).show();
             }
         });
 
         // 设置保存日志按钮监听器
-        saveLogsButton.setOnClickListener(v -> {
+        exportCurrentLogsButton.setOnClickListener(v -> {
             if (getContext() != null) {
-                File logFile = AppLog.saveLogsToFile(getContext());
+                File logFile = AppLog.saveCurrentLogsToFile(getContext());
                 if (logFile != null) {
-                    Toast.makeText(getContext(), "Logs saved to: " + logFile.getAbsolutePath(), Toast.LENGTH_LONG).show();
+                    Toast.makeText(getContext(), "日志已导出到: " + logFile.getAbsolutePath(), Toast.LENGTH_LONG).show();
                 } else {
-                    Toast.makeText(getContext(), "Failed to save logs", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(getContext(), "导出日志失败", Toast.LENGTH_SHORT).show();
                 }
             }
         });
 
         // 设置一键上传日志按钮监听器
+        exportPreviousLogsButton.setOnClickListener(v -> {
+            if (getContext() != null) {
+                File logFile = AppLog.savePreviousSessionLogsToFile(getContext());
+                if (logFile != null) {
+                    Toast.makeText(getContext(), "上次运行日志已导出到: " + logFile.getAbsolutePath(), Toast.LENGTH_LONG).show();
+                } else {
+                    Toast.makeText(getContext(), "没有可导出的上次运行日志", Toast.LENGTH_SHORT).show();
+                }
+                updatePreviousLogButtonState();
+            }
+        });
+
         uploadLogsButton.setOnClickListener(v -> {
             if (getContext() != null && appConfig != null) {
                 // 检查是否已设置设备名称
@@ -488,6 +505,18 @@ public class SettingsFragment extends Fragment {
         }
 
         return view;
+    }
+
+    private void updatePreviousLogButtonState() {
+        if (exportPreviousLogsButton == null) {
+            return;
+        }
+
+        Context context = getContext();
+        boolean hasPreviousLogs = context != null && AppLog.hasPreviousSessionLogs(context);
+        exportPreviousLogsButton.setEnabled(hasPreviousLogs);
+        exportPreviousLogsButton.setAlpha(hasPreviousLogs ? 1f : 0.5f);
+        exportPreviousLogsButton.setText(hasPreviousLogs ? "导出上次日志" : "上次日志为空");
     }
     
     /**
@@ -2153,15 +2182,6 @@ public class SettingsFragment extends Fragment {
     private void notifyStorageCleanupConfigChanged() {
         if (getActivity() instanceof MainActivity) {
             ((MainActivity) getActivity()).restartStorageCleanupTask();
-        }
-    }
-    
-    /**
-     * 更新日志按钮区域的可见性（仅 Debug 开启时显示）
-     */
-    private void updateSaveLogsButtonVisibility(boolean visible) {
-        if (logButtonsLayout != null) {
-            logButtonsLayout.setVisibility(visible ? View.VISIBLE : View.GONE);
         }
     }
     

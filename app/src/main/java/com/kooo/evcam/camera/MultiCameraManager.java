@@ -21,6 +21,8 @@ import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 四路摄像头管理器
@@ -29,6 +31,7 @@ public class MultiCameraManager {
     private static final String TAG = "MultiCameraManager";
 
     private static final int DEFAULT_MAX_OPEN_CAMERAS = 4;
+    private static final long DEFAULT_STOP_RECORDING_TIMEOUT_MS = 8000;
     private static final long RECORDING_STABLE_FRAME_MAX_AGE_MS = 1500;
     private static final int MAX_STABLE_WAIT_ATTEMPTS = 10;
     private static final long STABLE_WAIT_INTERVAL_MS = 200;
@@ -1655,28 +1658,56 @@ public class MultiCameraManager {
      * @param skipRelayTransfer 是否跳过自动传输（用于远程录制，上传完成后再传输）
      */
     public void stopRecording(boolean skipRelayTransfer) {
-        AppLog.d(TAG, "stopRecording called, isRecording=" + isRecording + ", useCodecRecording=" + useCodecRecording + ", skipRelayTransfer=" + skipRelayTransfer);
+        stopRecordingAsync(skipRelayTransfer, true);
+    }
 
-        // 立即标记停止状态，防止新的录制请求
+    public boolean stopRecordingAndWait(long timeoutMs) {
+        return stopRecordingAndWait(false, timeoutMs);
+    }
+
+    public boolean stopRecordingAndWait(boolean skipRelayTransfer, long timeoutMs) {
+        return stopRecordingAndWait(skipRelayTransfer, true, timeoutMs);
+    }
+
+    private boolean stopRecordingAndWait(boolean skipRelayTransfer, boolean restorePreviewSession, long timeoutMs) {
+        CountDownLatch stopLatch = stopRecordingAsync(skipRelayTransfer, restorePreviewSession);
+        long waitMs = timeoutMs > 0 ? timeoutMs : DEFAULT_STOP_RECORDING_TIMEOUT_MS;
+        try {
+            if (!stopLatch.await(waitMs, TimeUnit.MILLISECONDS)) {
+                AppLog.w(TAG, "\u7b49\u5f85\u5f55\u5236\u505c\u6b62\u8d85\u65f6\uff0c\u90e8\u5206\u8d44\u6e90\u53ef\u80fd\u4ecd\u5728\u56de\u6536\u4e2d");
+                return false;
+            }
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            AppLog.w(TAG, "\u7b49\u5f85\u5f55\u5236\u505c\u6b62\u88ab\u4e2d\u65ad");
+            return false;
+        }
+    }
+
+    private CountDownLatch stopRecordingAsync(boolean skipRelayTransfer, boolean restorePreviewSession) {
+        AppLog.d(TAG, "stopRecording called, isRecording=" + isRecording + ", useCodecRecording=" + useCodecRecording + ", skipRelayTransfer=" + skipRelayTransfer + ", restorePreviewSession=" + restorePreviewSession);
+
+        // Mark stopped immediately so no new recording request can slip in.
         final boolean wasRecording = isRecording;
         isRecording = false;
+        final File savedFinalDir = finalSaveDir;
+        final CountDownLatch stopLatch = new CountDownLatch(1);
 
-        // 在后台线程执行停止操作，避免阻塞主线程
+        // Perform the heavy stop flow off the main thread.
         new Thread(() -> {
             try {
-                // 清理待处理的录制启动任务和会话计数器（线程安全处理）
+                // Clear pending start state first to avoid stop/start overlap races.
                 synchronized (sessionLock) {
                     if (pendingRecordingStart != null) {
                         AppLog.d(TAG, "Cancelling pending recording start");
                         pendingRecordingStart = null;
                     }
 
-                    // 重置会话计数器
                     sessionConfiguredCount = 0;
                     expectedSessionCount = 0;
                 }
 
-                // 清理超时任务
                 if (sessionTimeoutRunnable != null) {
                     mainHandler.removeCallbacks(sessionTimeoutRunnable);
                     sessionTimeoutRunnable = null;
@@ -1686,7 +1717,6 @@ public class MultiCameraManager {
 
                 if (!wasRecording) {
                     AppLog.w(TAG, "Not recording, but cleaning up anyway");
-                    // 即使不在录制状态，也尝试清理录制器
                     for (String key : keys) {
                         try {
                             VideoRecorder recorder = recorders.get(key);
@@ -1709,7 +1739,6 @@ public class MultiCameraManager {
                     return;
                 }
 
-                // 停止软编码录制（带超时保护）
                 if (!codecRecorders.isEmpty()) {
                     AppLog.d(TAG, "Stopping codec recorders...");
                     for (String key : keys) {
@@ -1722,7 +1751,6 @@ public class MultiCameraManager {
                             AppLog.e(TAG, "Error stopping codec recorder for " + key, e);
                         }
                     }
-                    // 释放软编码录制器
                     for (CodecVideoRecorder recorder : new ArrayList<>(codecRecorders.values())) {
                         try {
                             recorder.release();
@@ -1733,7 +1761,6 @@ public class MultiCameraManager {
                     codecRecorders.clear();
                 }
 
-                // 停止 MediaRecorder 录制（带超时保护）
                 for (String key : keys) {
                     try {
                         VideoRecorder recorder = recorders.get(key);
@@ -1745,26 +1772,25 @@ public class MultiCameraManager {
                     }
                 }
 
-                // 在主线程清理摄像头会话（使用短延迟确保录制器已完全停止）
-                mainHandler.postDelayed(() -> {
-                    for (String key : keys) {
-                        try {
-                            SingleCamera camera = cameras.get(key);
-                            if (camera != null) {
-                                camera.clearRecordSurface();
-                                camera.recreateSession();
+                if (restorePreviewSession) {
+                    mainHandler.postDelayed(() -> {
+                        for (String key : keys) {
+                            try {
+                                SingleCamera camera = cameras.get(key);
+                                if (camera != null) {
+                                    camera.clearRecordSurface();
+                                    camera.recreateSession();
+                                }
+                            } catch (Exception e) {
+                                AppLog.e(TAG, "Error clearing record surface for " + key, e);
                             }
-                        } catch (Exception e) {
-                            AppLog.e(TAG, "Error clearing record surface for " + key, e);
                         }
-                    }
-                }, 100);
+                    }, 100);
+                }
 
-                // 如果使用中转写入，将临时目录中的所有文件传输到最终目录
-                if (useRelayWrite && finalSaveDir != null && !skipRelayTransfer) {
+                if (useRelayWrite && savedFinalDir != null && !skipRelayTransfer) {
                     AppLog.d(TAG, "Scheduling relay transfer for remaining files...");
-                    final File savedFinalDir = finalSaveDir;
-                    
+
                     File tempDir = new File(context.getCacheDir(), FileTransferManager.TEMP_VIDEO_DIR);
                     final File[] filesToTransfer;
                     if (tempDir.exists()) {
@@ -1772,27 +1798,29 @@ public class MultiCameraManager {
                     } else {
                         filesToTransfer = null;
                     }
-                    
-                    mainHandler.postDelayed(() -> {
-                        transferSpecificTempFiles(savedFinalDir, filesToTransfer);
-                    }, 500);
+
+                    mainHandler.postDelayed(() -> transferSpecificTempFiles(savedFinalDir, filesToTransfer), 500);
                 }
 
                 useRelayWrite = false;
                 AppLog.d(TAG, "stopRecording completed successfully");
             } catch (Exception e) {
                 AppLog.e(TAG, "Error in stopRecording", e);
+            } finally {
+                stopLatch.countDown();
             }
         }, "StopRecording-" + System.currentTimeMillis()).start();
+
         finalSaveDir = null;
-        
-        // 清理 Watchdog 回退状态
+
+        // 清理 Watchdog 回退状态。
         currentRecordingTimestamp = null;
         currentEnabledCameras = null;
         rebuildAttemptCount = 0;
-        isRebuildingRecording = false;  // 重置重建标志
-        
+        isRebuildingRecording = false;
+
         AppLog.d(TAG, "All cameras stopped recording");
+        return stopLatch;
     }
 
     /**
@@ -2095,7 +2123,8 @@ public class MultiCameraManager {
             
             // 4. 停止录制
             try {
-                stopRecording();
+                // release 期间不再恢复预览会话，也不再安排中转传输，避免关闭流程与收尾任务互相打架。
+                stopRecordingAndWait(true, false, DEFAULT_STOP_RECORDING_TIMEOUT_MS);
             } catch (Exception e) {
                 AppLog.e(TAG, "Error stopping recording during release", e);
             }

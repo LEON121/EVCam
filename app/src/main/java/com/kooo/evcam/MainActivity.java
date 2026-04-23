@@ -980,6 +980,13 @@ public class MainActivity extends AppCompatActivity {
             requiredTextureCount = 4;
             AppLog.d(TAG, "使用26款星舰7配置：横屏4摄像头布局");
         }
+        // 银河A7：横屏四摄像头布局（沿用银河E5）
+        else if (AppConfig.CAR_MODEL_GALAXY_A7.equals(carModel)) {
+            layoutId = R.layout.activity_main;
+            configuredCameraCount = 4;
+            requiredTextureCount = 4;
+            AppLog.d(TAG, "使用银河A7配置：横屏4摄像头布局（沿用E5）");
+        }
         // 多视角布局：自定义布局 + 圆角UI + 车辆控制
         else if (appConfig.isMultiviewCarModel()) {
             layoutId = R.layout.activity_main_multiview;
@@ -1360,7 +1367,45 @@ public class MainActivity extends AppCompatActivity {
         // 根据开关状态调整 requiredTextureCount
         updateRequiredTextureCount();
 
+        setupCameraFrameTouchListeners(frameFront, frameBack, frameLeft, frameRight);
+
         AppLog.d(TAG, "摄像头开关初始化完成，requiredTextureCount=" + requiredTextureCount);
+    }
+
+    private FullscreenPreviewDialog currentFullscreenDialog;
+
+    private void setupCameraFrameTouchListeners(android.widget.FrameLayout frameFront,
+                                                  android.widget.FrameLayout frameBack,
+                                                  android.widget.FrameLayout frameLeft,
+                                                  android.widget.FrameLayout frameRight) {
+        setupSingleCameraFrameTouchListener(frameFront, "front");
+        setupSingleCameraFrameTouchListener(frameBack, "back");
+        setupSingleCameraFrameTouchListener(frameLeft, "left");
+        setupSingleCameraFrameTouchListener(frameRight, "right");
+    }
+
+    private void setupSingleCameraFrameTouchListener(android.widget.FrameLayout frame, String cameraPosition) {
+        if (frame == null) return;
+
+        frame.setOnClickListener(v -> {
+            if (currentFullscreenDialog != null && currentFullscreenDialog.isShowing()) {
+                return;
+            }
+            showFullscreenPreview(cameraPosition);
+        });
+    }
+
+    private void showFullscreenPreview(String cameraPosition) {
+        AppLog.d(TAG, "显示全屏预览: " + cameraPosition);
+
+        currentFullscreenDialog = new FullscreenPreviewDialog(this, cameraPosition);
+        currentFullscreenDialog.setOnParamsSavedListener((pos, k1, k2, zoom, cx, cy, rotation) -> {
+            AppLog.d(TAG, "鱼眼参数已保存: " + pos + " k1=" + k1 + " k2=" + k2 + " zoom=" + zoom + " rotation=" + rotation);
+        });
+        currentFullscreenDialog.setOnDismissListener(dialog -> {
+            currentFullscreenDialog = null;
+        });
+        currentFullscreenDialog.show();
     }
 
     /**
@@ -2704,6 +2749,9 @@ public class MainActivity extends AppCompatActivity {
                 } else if (AppConfig.CAR_MODEL_XINGHAN_7.equals(carModel)) {
                     // 26款星舰7：使用固定映射（前3后2左4右1）
                     initCamerasForXinghan7(cameraIds);
+                } else if (AppConfig.CAR_MODEL_GALAXY_A7.equals(carModel)) {
+                    // 银河A7：沿用银河E5固定映射
+                    initCamerasForGalaxyE5(cameraIds);
                 } else if (appConfig.needsCustomLayoutManager()) {
                     // 自定义车型/多视角：使用用户配置的摄像头映射
                     initCamerasForCustomModel(cameraIds);
@@ -4177,6 +4225,7 @@ public class MainActivity extends AppCompatActivity {
             public void onConnected() {
                 runOnUiThread(() -> {
                     AppLog.d(TAG, "远程查看服务已连接");
+                    Toast.makeText(MainActivity.this, "钉钉远程已启动", Toast.LENGTH_SHORT).show();
                     // 通知 RemoteViewFragment 更新 UI
                     updateRemoteViewFragmentUI();
                 });

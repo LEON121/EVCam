@@ -55,15 +55,18 @@ public class CodecVideoRecorder {
     // 录制时补盲优化模式
     private boolean blindSpotOptimizeMode = false;  // 是否启用补盲优化模式（录制时降低负载）
     private static final int BLIND_SPOT_OPTIMIZED_FPS = 15;  // 补盲优化模式帧率
+
+    // 编码器选择：是否强制使用 H.264（默认 false，优先使用 HEVC）
+    private boolean forceH264 = false;
     
     // 画质等级：0=低, 1=中, 2=高, 3=最高
     private int qualityLevel = 2;
     
-    // 自适应 drain 间隔控制（优化版 - 不降低画质）
-    private volatile long currentDrainIntervalMs = 16;  // 当前 drain 间隔（毫秒）- 约60fps周期，平衡实时性和CPU
-    private static final long DRAIN_INTERVAL_MIN_MS = 8;   // 最小 8ms（保证流畅性）
-    private static final long DRAIN_INTERVAL_MAX_MS = 33;  // 最大 33ms（约30fps，避免过度延迟）
-    private static final int DRAIN_BATCH_SIZE = 5;  // 每次 drain 批量处理更多帧，减少系统调用开销
+    // 自适应 drain 间隔控制（优化版 - 减少CPU占用）
+    private volatile long currentDrainIntervalMs = 20;  // 当前 drain 间隔（毫秒）- 提高到20ms减少CPU占用
+    private static final long DRAIN_INTERVAL_MIN_MS = 10;   // 最小 10ms（保证流畅性）
+    private static final long DRAIN_INTERVAL_MAX_MS = 50;  // 最大 50ms（减少CPU占用）
+    private static final int DRAIN_BATCH_SIZE = 8;  // 每次 drain 批量处理更多帧，减少系统调用开销
     private long lastDrainTimeMs = 0;  // 上次 drain 时间
     private int framesSinceLastDrain = 0;  // 上次 drain 以来的帧数
 
@@ -248,6 +251,15 @@ public class CodecVideoRecorder {
     public void setQualityLevel(int level) {
         this.qualityLevel = Math.max(0, Math.min(3, level));
         AppLog.d(TAG, "Camera " + cameraId + " quality level set to " + this.qualityLevel);
+    }
+
+    /**
+     * 设置是否强制使用 H.264 编码器
+     * @param force true 表示强制 H.264（兼容性优先），false 表示优先使用 HEVC
+     */
+    public void setForceH264(boolean force) {
+        this.forceH264 = force;
+        AppLog.d(TAG, "Camera " + cameraId + " forceH264 = " + force);
     }
 
     /**
@@ -853,33 +865,38 @@ public class CodecVideoRecorder {
      * 优先尝试 HEVC (H.265)，如果不支持则回退到 H.264
      */
     private void createEncoder() throws IOException {
-        // 检测并选择最优编码格式
+        // 检测并选择最优编码格式（forceH264 开启时固定 H.264）
         mimeType = selectBestEncoder();
-        
-        // 计算最优码率
-        int optimalBitrate = calculateOptimalBitrate();
-        
+
         // 如果启用了补盲优化模式，使用降低的帧率
         int effectiveFrameRate = blindSpotOptimizeMode ? BLIND_SPOT_OPTIMIZED_FPS : frameRate;
-        
+
+        // 码率：HEVC 模式使用优化后码率；H.264 兼容模式使用显式配置值
+        int effectiveBitrate = forceH264 ? bitRate : calculateOptimalBitrate();
+
         MediaFormat format = MediaFormat.createVideoFormat(mimeType, width, height);
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
-        format.setInteger(MediaFormat.KEY_BIT_RATE, optimalBitrate);
+        format.setInteger(MediaFormat.KEY_BIT_RATE, effectiveBitrate);
         format.setInteger(MediaFormat.KEY_FRAME_RATE, effectiveFrameRate);
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, I_FRAME_INTERVAL);
-        
-        // HEVC 特定优化参数
-        if (mimeType.equals(MIME_TYPE_HEVC)) {
-            // 设置 HEVC 的 Profile 和 Level 以获得更好效率
-            format.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.HEVCProfileMain);
-            format.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.HEVCHighTierLevel4);
-        } else {
-            // H.264 优化参数
-            format.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileHigh);
-        }
 
-        // 优化：使用硬件编码器创建方法
-        encoder = createHardwareEncoder(mimeType);
+        if (!forceH264) {
+            // HEVC/H.264 优化路径：附加 Profile/Level 以获得更好效率
+            if (mimeType.equals(MIME_TYPE_HEVC)) {
+                format.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.HEVCProfileMain);
+                format.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.HEVCHighTierLevel4);
+            } else {
+                format.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileHigh);
+            }
+        }
+        // forceH264 开启：不设置 Profile/Level，走 v1.2.4 兼容路径，避免车机硬件 configure 失败
+
+        // 编码器创建：兼容模式用 createEncoderByType；优化模式优先选择硬件编码器
+        if (forceH264) {
+            encoder = MediaCodec.createEncoderByType(mimeType);
+        } else {
+            encoder = createHardwareEncoder(mimeType);
+        }
         encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
 
         encoderInputSurface = encoder.createInputSurface();
@@ -887,10 +904,11 @@ public class CodecVideoRecorder {
 
         bufferInfo = new MediaCodec.BufferInfo();
 
-        AppLog.d(TAG, "Camera " + cameraId + " Encoder created: " + width + "x" + height + 
-                " @ " + effectiveFrameRate + "fps" + (blindSpotOptimizeMode ? "(补盲优化)" : "") + 
-                ", " + (optimalBitrate / 1000) + " Kbps, " + 
-                (mimeType.equals(MIME_TYPE_HEVC) ? "HEVC" : "H.264"));
+        AppLog.d(TAG, "Camera " + cameraId + " Encoder created: " + width + "x" + height +
+                " @ " + effectiveFrameRate + "fps" + (blindSpotOptimizeMode ? "(补盲优化)" : "") +
+                ", " + (effectiveBitrate / 1000) + " Kbps, " +
+                (mimeType.equals(MIME_TYPE_HEVC) ? "HEVC" : "H.264") +
+                (forceH264 ? " [兼容模式]" : ""));
     }
 
     /**
@@ -899,6 +917,11 @@ public class CodecVideoRecorder {
      * 优化：优先选择硬件编码器，性能更好
      */
     private String selectBestEncoder() {
+        // 用户强制 H.264：兼容部分车型（避免 HEVC 在车机硬件上的闪烁/configure 失败）
+        if (forceH264) {
+            AppLog.i(TAG, "Camera " + cameraId + " force H.264 encoder (user setting)");
+            return MIME_TYPE_H264;
+        }
         try {
             // 检查 HEVC 编码器是否可用
             MediaCodec hevcEncoder = MediaCodec.createEncoderByType(MIME_TYPE_HEVC);
@@ -980,26 +1003,26 @@ public class CodecVideoRecorder {
      * 3. 严格限制最大码率，防止编码器过载
      */
     private int calculateOptimalBitrate() {
-        // 基础码率计算（每像素每帧的比特数）- 优化后的值
+        // 基础码率计算（每像素每帧的比特数）- 优化后的值，降低码率减少CPU占用
         double bitsPerPixelPerFrame;
-        
+
         switch (qualityLevel) {
             case 0: // 低画质 - 适合长时间录制
-                bitsPerPixelPerFrame = 0.04;
+                bitsPerPixelPerFrame = 0.03;
                 break;
             case 1: // 中画质 - 平衡画质和性能
-                bitsPerPixelPerFrame = 0.06;
+                bitsPerPixelPerFrame = 0.05;
                 break;
             case 2: // 高画质（推荐）- 优化后的值
-                bitsPerPixelPerFrame = 0.09;
+                bitsPerPixelPerFrame = 0.07;
                 break;
-            case 3: // 最高画质 - 降低 bpp 防止卡顿
-                bitsPerPixelPerFrame = 0.12;
+            case 3: // 最高画质 - 适当降低 bpp 减少CPU
+                bitsPerPixelPerFrame = 0.10;
                 break;
             default:
-                bitsPerPixelPerFrame = 0.09;
+                bitsPerPixelPerFrame = 0.07;
         }
-        
+
         // 根据分辨率调整 bpp：分辨率越高，bpp 适当降低（编码效率提升）
         long totalPixels = (long) width * height;
         if (totalPixels > 2073600) { // 超过 1080p (1920x1080)
@@ -1007,27 +1030,27 @@ public class CodecVideoRecorder {
         } else if (totalPixels > 921600) { // 超过 720p (1280x720)
             bitsPerPixelPerFrame *= 0.90; // 降低 10%
         }
-        
-        // HEVC 效率更高，相同画质下使用 55% 的码率（之前是 60%，进一步优化）
+
+        // HEVC 效率更高，相同画质下使用 55% 的码率
         boolean isHevc = mimeType.equals(MIME_TYPE_HEVC);
         if (isHevc) {
             bitsPerPixelPerFrame *= 0.55;
         }
-        
+
         // 计算总码率
         long bitrate = (long) (width * height * frameRate * bitsPerPixelPerFrame);
-        
+
         // 严格设置码率上限（防止过高导致编码器卡顿）
         int maxAllowedBitrate = isHevc ? MAX_HEVC_BITRATE : MAX_BITRATE;
         bitrate = Math.min(bitrate, maxAllowedBitrate);
-        
+
         // 设置码率下限（保证基本画质）
         int minAllowedBitrate = isHevc ? 1000000 : 1500000; // HEVC 1Mbps, H.264 1.5Mbps
         bitrate = Math.max(bitrate, minAllowedBitrate);
-        
+
         // 四舍五入到 100Kbps，便于日志阅读
         bitrate = ((bitrate + 50000) / 100000) * 100000;
-        
+
         return (int) bitrate;
     }
 
@@ -1220,14 +1243,15 @@ public class CodecVideoRecorder {
 
                     if (encodedData != null && bufferInfo.size != 0) {
                         if (muxerStarted) {
-                            long currentTimeNs = System.nanoTime();
-                            long calculatedPtsUs = (currentTimeNs - segmentStartTimeNs) / 1000;
+                            // 性能优化：使用基于帧数的 PTS 计算，减少 System.nanoTime() 调用开销
+                            // 与 drainEncoder 中的计算方式保持一致
+                            long calculatedPtsUs = encodedOutputFrameCount * 40000L;
                             bufferInfo.presentationTimeUs = calculatedPtsUs;
-                            
+
                             encodedData.position(bufferInfo.offset);
                             encodedData.limit(bufferInfo.offset + bufferInfo.size);
                             muxer.writeSampleData(videoTrackIndex, encodedData, bufferInfo);
-                            
+
                             encodedOutputFrameCount++;
                             lastEncoderOutputTime = System.currentTimeMillis();
                             gotOutput = true;

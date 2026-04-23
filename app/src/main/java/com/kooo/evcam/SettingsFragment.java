@@ -55,6 +55,7 @@ public class SettingsFragment extends Fragment {
     // private SwitchMaterial preventSleepSwitch;
     private SwitchMaterial recordingStatsSwitch;
     private SwitchMaterial timestampWatermarkSwitch;
+    private SwitchMaterial forceH264Switch;
     
     // 预览画面矫正相关
     private SwitchMaterial previewCorrectionSwitch;
@@ -85,7 +86,7 @@ public class SettingsFragment extends Fragment {
     // 车型配置相关
     private Spinner carModelSpinner;
     private Button customCameraConfigButton;
-    private static final String[] CAR_MODEL_OPTIONS = {"银河E5", "银河E5-多按钮", "银河L6/L7", "银河L7-多按钮", "26款星舰7", "手机", "自定义车型", "多视角布局"};
+    private static final String[] CAR_MODEL_OPTIONS = {"银河E5", "银河A7", "银河E5-多按钮", "银河L6/L7", "银河L7-多按钮", "26款星舰7", "手机", "自定义车型", "多视角布局"};
     private boolean isInitializingCarModel = false;
     private String lastAppliedCarModel = null;
     
@@ -302,6 +303,20 @@ public class SettingsFragment extends Fragment {
             if (getContext() != null && appConfig != null) {
                 appConfig.setTimestampWatermarkEnabled(isChecked);
                 String message = isChecked ? "时间角标已开启" : "时间角标已关闭";
+                Toast.makeText(getContext(), message, Toast.LENGTH_SHORT).show();
+                AppLog.d("SettingsFragment", message);
+            }
+        });
+
+        // 初始化强制 H.264 编码开关
+        forceH264Switch = view.findViewById(R.id.switch_force_h264);
+        if (getContext() != null && appConfig != null) {
+            forceH264Switch.setChecked(appConfig.isForceH264Encoding());
+        }
+        forceH264Switch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (getContext() != null && appConfig != null) {
+                appConfig.setForceH264Encoding(isChecked);
+                String message = isChecked ? "已切换为 H.264 兼容编码，下一段录制生效" : "已切换为 H.265/HEVC 编码，下一段录制生效";
                 Toast.makeText(getContext(), message, Toast.LENGTH_SHORT).show();
                 AppLog.d("SettingsFragment", message);
             }
@@ -1178,21 +1193,24 @@ public class SettingsFragment extends Fragment {
                     newModel = AppConfig.CAR_MODEL_GALAXY_E5;
                     modelName = "银河E5";
                 } else if (position == 1) {
+                    newModel = AppConfig.CAR_MODEL_GALAXY_A7;
+                    modelName = "银河A7";
+                } else if (position == 2) {
                     newModel = AppConfig.CAR_MODEL_E5_MULTI;
                     modelName = "银河E5-多按钮";
-                } else if (position == 2) {
+                } else if (position == 3) {
                     newModel = AppConfig.CAR_MODEL_L7;
                     modelName = "银河L6/L7";
-                } else if (position == 3) {
+                } else if (position == 4) {
                     newModel = AppConfig.CAR_MODEL_L7_MULTI;
                     modelName = "银河L7-多按钮";
-                } else if (position == 4) {
+                } else if (position == 5) {
                     newModel = AppConfig.CAR_MODEL_XINGHAN_7;
                     modelName = "26款星舰7";
-                } else if (position == 5) {
+                } else if (position == 6) {
                     newModel = AppConfig.CAR_MODEL_PHONE;
                     modelName = "手机";
-                } else if (position == 7) {
+                } else if (position == 8) {
                     newModel = AppConfig.CAR_MODEL_MULTIVIEW;
                     modelName = "多视角布局";
                 } else {
@@ -1201,7 +1219,7 @@ public class SettingsFragment extends Fragment {
                 }
 
                 // 自定义车型和多视角布局显示配置按钮
-                updateCustomConfigButtonVisibility(position == 6 || position == 7);
+                updateCustomConfigButtonVisibility(position == 7 || position == 8);
 
                 if (isInitializingCarModel) {
                     return;
@@ -1232,20 +1250,22 @@ public class SettingsFragment extends Fragment {
         
         String currentModel = appConfig.getCarModel();
         int selectedIndex = 0;
-        if (AppConfig.CAR_MODEL_E5_MULTI.equals(currentModel)) {
+        if (AppConfig.CAR_MODEL_GALAXY_A7.equals(currentModel)) {
             selectedIndex = 1;
-        } else if (AppConfig.CAR_MODEL_L7.equals(currentModel)) {
+        } else if (AppConfig.CAR_MODEL_E5_MULTI.equals(currentModel)) {
             selectedIndex = 2;
-        } else if (AppConfig.CAR_MODEL_L7_MULTI.equals(currentModel)) {
+        } else if (AppConfig.CAR_MODEL_L7.equals(currentModel)) {
             selectedIndex = 3;
-        } else if (AppConfig.CAR_MODEL_XINGHAN_7.equals(currentModel)) {
+        } else if (AppConfig.CAR_MODEL_L7_MULTI.equals(currentModel)) {
             selectedIndex = 4;
-        } else if (AppConfig.CAR_MODEL_PHONE.equals(currentModel)) {
+        } else if (AppConfig.CAR_MODEL_XINGHAN_7.equals(currentModel)) {
             selectedIndex = 5;
-        } else if (AppConfig.CAR_MODEL_CUSTOM.equals(currentModel)) {
+        } else if (AppConfig.CAR_MODEL_PHONE.equals(currentModel)) {
             selectedIndex = 6;
-        } else if (AppConfig.CAR_MODEL_MULTIVIEW.equals(currentModel)) {
+        } else if (AppConfig.CAR_MODEL_CUSTOM.equals(currentModel)) {
             selectedIndex = 7;
+        } else if (AppConfig.CAR_MODEL_MULTIVIEW.equals(currentModel)) {
+            selectedIndex = 8;
         }
         carModelSpinner.setSelection(selectedIndex);
         
